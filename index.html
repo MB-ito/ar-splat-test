@@ -1,0 +1,175 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>3DGS AR Test</title>
+  <style>
+    html, body {
+      margin: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: #000;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    #app {
+      position: fixed;
+      inset: 0;
+    }
+    #hud {
+      position: fixed;
+      left: 12px;
+      right: 12px;
+      top: 12px;
+      z-index: 10;
+      color: #fff;
+      background: rgba(0,0,0,.5);
+      border: 1px solid rgba(255,255,255,.2);
+      border-radius: 14px;
+      padding: 12px 14px;
+      backdrop-filter: blur(8px);
+      line-height: 1.5;
+      font-size: 14px;
+      pointer-events: none;
+    }
+    #status {
+      font-weight: 700;
+      margin-bottom: 6px;
+    }
+    .note {
+      opacity: .9;
+      font-size: 12px;
+      margin-top: 6px;
+    }
+    #error {
+      color: #ffb4b4;
+    }
+    a { color: #9fd1ff; }
+  </style>
+  <script async src="https://unpkg.com/es-module-shims@1.10.0/dist/es-module-shims.js"></script>
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.169.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.169.0/examples/jsm/",
+      "@mkkellogg/gaussian-splats-3d": "https://cdn.jsdelivr.net/npm/@mkkellogg/gaussian-splats-3d@0.4.7/+esm"
+    }
+  }
+  </script>
+</head>
+<body>
+  <div id="app"></div>
+  <div id="hud">
+    <div id="status">初期化中…</div>
+    <div>通常表示のあと、右下の <strong>START AR</strong> でARに入ります。</div>
+    <div>最初はモデルをカメラ前方約1.5mに表示します。</div>
+    <div class="note">推奨: Android + Chrome / HTTPS または localhost</div>
+    <div id="error" class="note"></div>
+  </div>
+
+  <script type="module">
+    import * as THREE from 'three';
+    import { ARButton } from 'three/addons/webxr/ARButton.js';
+    import * as GaussianSplats3D from '@mkkellogg/gaussian-splats-3d';
+
+    const app = document.getElementById('app');
+    const statusEl = document.getElementById('status');
+    const errorEl = document.getElementById('error');
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.xr.enabled = true;
+    renderer.xr.setReferenceSpaceType('local');
+    app.appendChild(renderer.domElement);
+
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.01, 100);
+    camera.position.set(0, 1.4, 2.2);
+
+    const ambient = new THREE.HemisphereLight(0xffffff, 0x444444, 1.4);
+    scene.add(ambient);
+
+    const splatRoot = new THREE.Group();
+    splatRoot.position.set(0, -0.2, -1.5);
+    splatRoot.scale.setScalar(0.35);
+    scene.add(splatRoot);
+
+    const viewer = new GaussianSplats3D.DropInViewer({
+      selfDrivenMode: false,
+      useBuiltInControls: false,
+      gpuAcceleratedSort: false,
+      sharedMemoryForWorkers: false,
+      enableSIMDInSort: false,
+      integerBasedSort: false,
+      ignoreDevicePixelRatio: true,
+      sceneRevealMode: GaussianSplats3D.SceneRevealMode.Instant,
+      renderMode: GaussianSplats3D.RenderMode.Always,
+      dynamicScene: false,
+      antialiased: false,
+      logLevel: GaussianSplats3D.LogLevel.Info,
+      sphericalHarmonicsDegree: 0
+    });
+    splatRoot.add(viewer);
+
+    async function loadSplat() {
+      statusEl.textContent = '3DGS を読み込み中…';
+      await viewer.addSplatScenes([
+        {
+          path: './ARtest.splat',
+          format: GaussianSplats3D.SceneFormat.Splat,
+          splatAlphaRemovalThreshold: 1,
+          position: [0, 0, 0],
+          rotation: [0, 0, 0, 1],
+          scale: [1, 1, 1]
+        }
+      ]);
+      statusEl.textContent = '読み込み完了。START AR を押してください。';
+    }
+
+    const arButton = ARButton.createButton(renderer, {
+      requiredFeatures: [],
+      optionalFeatures: ['dom-overlay'],
+      domOverlay: { root: document.body }
+    });
+    Object.assign(arButton.style, {
+      bottom: '20px',
+      right: '20px',
+      left: 'auto',
+      width: 'auto',
+      padding: '12px 16px',
+      borderRadius: '999px',
+      border: '1px solid rgba(255,255,255,.3)',
+      background: 'rgba(0,0,0,.6)',
+      color: '#fff',
+      fontWeight: '700'
+    });
+    document.body.appendChild(arButton);
+
+    renderer.xr.addEventListener('sessionstart', () => {
+      statusEl.textContent = 'AR表示中';
+    });
+    renderer.xr.addEventListener('sessionend', () => {
+      statusEl.textContent = 'AR終了。START AR を押すと再開できます。';
+    });
+
+    window.addEventListener('resize', () => {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+
+    renderer.setAnimationLoop(() => {
+      viewer.update();
+      renderer.render(scene, camera);
+    });
+
+    loadSplat().catch((err) => {
+      console.error(err);
+      statusEl.textContent = '読み込み失敗';
+      errorEl.textContent = String(err?.message || err);
+    });
+  </script>
+</body>
+</html>
