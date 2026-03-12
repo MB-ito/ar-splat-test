@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <title>3DGS AR Test</title>
+  <title>3DGS AR Test Diagnostic</title>
   <style>
     html, body {
       margin: 0;
@@ -24,29 +24,32 @@
       top: 12px;
       z-index: 10;
       color: #fff;
-      background: rgba(0,0,0,.5);
-      border: 1px solid rgba(255,255,255,.2);
+      background: rgba(0,0,0,.55);
+      border: 1px solid rgba(255,255,255,.18);
       border-radius: 14px;
       padding: 12px 14px;
       backdrop-filter: blur(8px);
       line-height: 1.5;
       font-size: 14px;
       pointer-events: none;
+      box-sizing: border-box;
     }
     #status {
       font-weight: 700;
       margin-bottom: 6px;
     }
-    .note {
-      opacity: .9;
+    #detail, #error {
       font-size: 12px;
-      margin-top: 6px;
+      opacity: .95;
+      white-space: pre-wrap;
+      word-break: break-word;
     }
     #error {
       color: #ffb4b4;
+      margin-top: 6px;
     }
-    a { color: #9fd1ff; }
   </style>
+
   <script async src="https://unpkg.com/es-module-shims@1.10.0/dist/es-module-shims.js"></script>
   <script type="importmap">
   {
@@ -61,39 +64,73 @@
 <body>
   <div id="app"></div>
   <div id="hud">
-    <div id="status">初期化中…</div>
-    <div>通常表示のあと、右下の <strong>START AR</strong> でARに入ります。</div>
-    <div>最初はモデルをカメラ前方約1.5mに表示します。</div>
-    <div class="note">推奨: Android + Chrome / HTTPS または localhost</div>
-    <div id="error" class="note"></div>
+    <div id="status">初期化中...</div>
+    <div id="detail">通常表示の診断をしています。</div>
+    <div id="error"></div>
   </div>
 
   <script type="module">
     import * as THREE from 'three';
-    import { ARButton } from 'three/addons/webxr/ARButton.js';
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
     import * as GaussianSplats3D from '@mkkellogg/gaussian-splats-3d';
 
     const app = document.getElementById('app');
     const statusEl = document.getElementById('status');
+    const detailEl = document.getElementById('detail');
     const errorEl = document.getElementById('error');
 
-    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+    function setStatus(s) {
+      statusEl.textContent = s;
+      console.log('[status]', s);
+    }
+    function setDetail(s) {
+      detailEl.textContent = s;
+      console.log('[detail]', s);
+    }
+    function setError(e) {
+      const msg = typeof e === 'string' ? e : (e?.stack || e?.message || String(e));
+      errorEl.textContent = msg;
+      console.error(e);
+    }
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.setSize(window.innerWidth, window.innerHeight);
-    renderer.xr.enabled = true;
-    renderer.xr.setReferenceSpaceType('local');
     app.appendChild(renderer.domElement);
 
     const scene = new THREE.Scene();
-    const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.01, 100);
-    camera.position.set(0, 1.4, 2.2);
+    scene.background = new THREE.Color(0x101014);
 
-    const ambient = new THREE.HemisphereLight(0xffffff, 0x444444, 1.4);
-    scene.add(ambient);
+    const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.01, 100);
+    camera.position.set(0, 1.2, 3.0);
+
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.target.set(0, 0.6, 0);
+    controls.update();
+
+    const hemi = new THREE.HemisphereLight(0xffffff, 0x444444, 1.5);
+    scene.add(hemi);
+
+    const dir = new THREE.DirectionalLight(0xffffff, 1.0);
+    dir.position.set(3, 4, 2);
+    scene.add(dir);
+
+    const grid = new THREE.GridHelper(4, 20, 0x888888, 0x444444);
+    scene.add(grid);
+
+    const axes = new THREE.AxesHelper(0.8);
+    scene.add(axes);
+
+    const cube = new THREE.Mesh(
+      new THREE.BoxGeometry(0.25, 0.25, 0.25),
+      new THREE.MeshStandardMaterial({ color: 0xff4444 })
+    );
+    cube.position.set(0, 0.125, 0);
+    scene.add(cube);
 
     const splatRoot = new THREE.Group();
-    splatRoot.position.set(0, -0.2, -1.5);
-    splatRoot.scale.setScalar(0.35);
+    splatRoot.position.set(0, 0, 0);
+    splatRoot.scale.setScalar(1.0);
     scene.add(splatRoot);
 
     const viewer = new GaussianSplats3D.DropInViewer({
@@ -113,8 +150,18 @@
     });
     splatRoot.add(viewer);
 
+    async function testFetch() {
+      setDetail('ARtest.splat の存在確認中...');
+      const r = await fetch('./ARtest.splat', { method: 'HEAD' });
+      if (!r.ok) throw new Error('ARtest.splat fetch failed: HTTP ' + r.status);
+      setDetail('ARtest.splat は取得可能です。3DGS を読み込みます...');
+    }
+
     async function loadSplat() {
-      statusEl.textContent = '3DGS を読み込み中…';
+      await testFetch();
+
+      const start = performance.now();
+
       await viewer.addSplatScenes([
         {
           path: './ARtest.splat',
@@ -125,34 +172,25 @@
           scale: [1, 1, 1]
         }
       ]);
-      statusEl.textContent = '読み込み完了。START AR を押してください。';
+
+      const sec = ((performance.now() - start) / 1000).toFixed(1);
+      setStatus('3DGS 読み込み完了');
+      setDetail('読込時間: ' + sec + ' 秒\n赤い立方体と一緒に 3DGS が見えるか確認してください。');
     }
 
-    const arButton = ARButton.createButton(renderer, {
-      requiredFeatures: [],
-      optionalFeatures: ['dom-overlay'],
-      domOverlay: { root: document.body }
-    });
-    Object.assign(arButton.style, {
-      bottom: '20px',
-      right: '20px',
-      left: 'auto',
-      width: 'auto',
-      padding: '12px 16px',
-      borderRadius: '999px',
-      border: '1px solid rgba(255,255,255,.3)',
-      background: 'rgba(0,0,0,.6)',
-      color: '#fff',
-      fontWeight: '700'
-    });
-    document.body.appendChild(arButton);
+    const timeoutId = setTimeout(() => {
+      setStatus('3DGS 読み込み待機中');
+      setDetail('赤い立方体やグリッドが見えていれば、Three.js は動作しています。\n3DGS の読み込みだけが止まっている可能性があります。');
+    }, 8000);
 
-    renderer.xr.addEventListener('sessionstart', () => {
-      statusEl.textContent = 'AR表示中';
-    });
-    renderer.xr.addEventListener('sessionend', () => {
-      statusEl.textContent = 'AR終了。START AR を押すと再開できます。';
-    });
+    loadSplat()
+      .catch((err) => {
+        setStatus('3DGS 読み込み失敗');
+        setError(err);
+      })
+      .finally(() => {
+        clearTimeout(timeoutId);
+      });
 
     window.addEventListener('resize', () => {
       camera.aspect = window.innerWidth / window.innerHeight;
@@ -161,14 +199,10 @@
     });
 
     renderer.setAnimationLoop(() => {
-      viewer.update();
+      cube.rotation.y += 0.01;
+      if (viewer && viewer.update) viewer.update();
+      controls.update();
       renderer.render(scene, camera);
-    });
-
-    loadSplat().catch((err) => {
-      console.error(err);
-      statusEl.textContent = '読み込み失敗';
-      errorEl.textContent = String(err?.message || err);
     });
   </script>
 </body>
