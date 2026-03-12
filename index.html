@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <title>3DGS AR Test Diagnostic</title>
+  <title>3DGS AR Test</title>
   <style>
     html, body {
       margin: 0;
@@ -31,8 +31,8 @@
       backdrop-filter: blur(8px);
       line-height: 1.5;
       font-size: 14px;
-      pointer-events: none;
       box-sizing: border-box;
+      pointer-events: none;
     }
     #status {
       font-weight: 700;
@@ -65,13 +65,14 @@
   <div id="app"></div>
   <div id="hud">
     <div id="status">初期化中...</div>
-    <div id="detail">通常表示の診断をしています。</div>
+    <div id="detail">3DGSを読み込み、AR開始を待っています。</div>
     <div id="error"></div>
   </div>
 
   <script type="module">
     import * as THREE from 'three';
     import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+    import { ARButton } from 'three/addons/webxr/ARButton.js';
     import * as GaussianSplats3D from '@mkkellogg/gaussian-splats-3d';
 
     const app = document.getElementById('app');
@@ -95,9 +96,11 @@
       console.error(e);
     }
 
-    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
+    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.xr.enabled = true;
+    renderer.xr.setReferenceSpaceType('local');
     app.appendChild(renderer.domElement);
 
     const scene = new THREE.Scene();
@@ -157,6 +160,8 @@
     });
     splatRoot.add(viewer);
 
+    let modelLoaded = false;
+
     async function testFetch() {
       setDetail('ARtest.ply の存在確認中...');
       const r = await fetch('./ARtest.ply', { method: 'HEAD' });
@@ -181,23 +186,65 @@
       ]);
 
       const sec = ((performance.now() - start) / 1000).toFixed(1);
+      modelLoaded = true;
       setStatus('3DGS 読み込み完了');
-      setDetail('読込時間: ' + sec + ' 秒\n赤い立方体と一緒に 3DGS が見えるか確認してください。');
+      setDetail('読込時間: ' + sec + ' 秒\n通常表示OK。右下の START AR を押してください。');
     }
 
-    const timeoutId = setTimeout(() => {
-      setStatus('3DGS 読み込み待機中');
-      setDetail('赤い立方体やグリッドが見えていれば、Three.js は動作しています。\n3DGS の読み込みだけが止まっている可能性があります。');
-    }, 8000);
+    const arButton = ARButton.createButton(renderer, {
+      optionalFeatures: ['dom-overlay'],
+      domOverlay: { root: document.body }
+    });
 
-    loadSplat()
-      .catch((err) => {
-        setStatus('3DGS 読み込み失敗');
-        setError(err);
-      })
-      .finally(() => {
-        clearTimeout(timeoutId);
-      });
+    Object.assign(arButton.style, {
+      bottom: '20px',
+      right: '20px',
+      left: 'auto',
+      width: 'auto',
+      padding: '12px 16px',
+      borderRadius: '999px',
+      border: '1px solid rgba(255,255,255,.3)',
+      background: 'rgba(0,0,0,.6)',
+      color: '#fff',
+      fontWeight: '700'
+    });
+
+    document.body.appendChild(arButton);
+
+    renderer.xr.addEventListener('sessionstart', () => {
+      controls.enabled = false;
+      scene.background = null;
+      grid.visible = false;
+      axes.visible = false;
+      cube.visible = false;
+
+      setStatus('AR表示中');
+      setDetail('3DGS をカメラ前方約1.5mに表示します。');
+
+      // AR開始時にモデルをカメラ前方へ配置
+      splatRoot.position.set(0, -0.2, -1.5);
+      splatRoot.scale.setScalar(0.35);
+    });
+
+    renderer.xr.addEventListener('sessionend', () => {
+      controls.enabled = true;
+      scene.background = new THREE.Color(0x101014);
+      grid.visible = true;
+      axes.visible = true;
+      cube.visible = true;
+
+      setStatus(modelLoaded ? '3DGS 読み込み完了' : '待機中');
+      setDetail(modelLoaded
+        ? '通常表示に戻りました。右下の START AR で再開できます。'
+        : '3DGS を読み込み中です。');
+      splatRoot.position.set(0, 0, 0);
+      splatRoot.scale.setScalar(1.0);
+    });
+
+    loadSplat().catch((err) => {
+      setStatus('3DGS 読み込み失敗');
+      setError(err);
+    });
 
     window.addEventListener('resize', () => {
       camera.aspect = window.innerWidth / window.innerHeight;
@@ -206,9 +253,11 @@
     });
 
     renderer.setAnimationLoop(() => {
-      cube.rotation.y += 0.01;
+      if (!renderer.xr.isPresenting) {
+        cube.rotation.y += 0.01;
+        controls.update();
+      }
       if (viewer && viewer.update) viewer.update();
-      controls.update();
       renderer.render(scene, camera);
     });
   </script>
