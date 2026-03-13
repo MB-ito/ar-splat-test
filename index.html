@@ -98,10 +98,15 @@
       bottom: 16px;
       display: flex;
       gap: 10px;
-      justify-content: flex-end;
+      justify-content: center;
       align-items: center;
       padding: 10px;
       border-radius: 18px;
+    }
+
+    #ar-entry {
+      display: flex;
+      justify-content: center;
     }
 
     .action-link,
@@ -364,13 +369,6 @@
 
     const axes = new THREE.AxesHelper(0.8);
     scene.add(axes);
-
-    const cube = new THREE.Mesh(
-      new THREE.BoxGeometry(0.25, 0.25, 0.25),
-      new THREE.MeshStandardMaterial({ color: 0xff4444 })
-    );
-    cube.position.set(0, 0.125, 0);
-    scene.add(cube);
 
     const previewRoot = new THREE.Group();
     scene.add(previewRoot);
@@ -817,7 +815,6 @@
       scene.background = null;
       grid.visible = false;
       axes.visible = false;
-      cube.visible = false;
       reticle.visible = false;
       tapHintEl.style.display = 'block';
       activePointers.clear();
@@ -845,7 +842,6 @@
       scene.background = new THREE.Color(0x101014);
       grid.visible = true;
       axes.visible = true;
-      cube.visible = true;
       tapHintEl.style.display = 'none';
       activePointers.clear();
       gestureState.active = false;
@@ -935,7 +931,6 @@
 
     renderer.setAnimationLoop((time, frame) => {
       if (!renderer.xr.isPresenting) {
-        cube.rotation.y += 0.01;
         controls.update();
       } else if (isSplatAssetType(activeAsset?.type) && canUseWebXRAR) {
         void ensureHitTestSource();
