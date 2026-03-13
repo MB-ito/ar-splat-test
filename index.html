@@ -220,6 +220,7 @@
       (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 
     const assetCandidates = [
+      { type: 'splat', path: `${BASE_NAME}.splat`, label: '3DGS SPLAT' },
       { type: 'ply', path: `${BASE_NAME}.ply`, label: '3DGS PLY' },
       { type: 'usdz', path: `${BASE_NAME}.usdz`, label: 'USDZ' },
       { type: 'fbx', path: `${BASE_NAME}.fbx`, label: 'FBX' },
@@ -232,6 +233,10 @@
     let canUseWebXRAR = false;
     let lastPlacementTs = 0;
     let activeViewer = null;
+
+    function isSplatAssetType(type) {
+      return type === 'ply' || type === 'splat';
+    }
 
     function setStatus(message) {
       statusEl.textContent = message;
@@ -304,6 +309,7 @@
         return assetsByType.get('usdz');
       }
 
+      if (assetsByType.has('splat')) return assetsByType.get('splat');
       if (assetsByType.has('ply')) return assetsByType.get('ply');
       if (assetsByType.has('usdz')) return assetsByType.get('usdz');
       if (assetsByType.has('fbx')) return assetsByType.get('fbx');
@@ -436,10 +442,15 @@
       return Math.atan2(dx, dz) + BASE_YAW_OFFSET;
     }
 
-    async function loadPlyAsset(asset) {
+    async function loadSplatAsset(asset) {
       splatRoot.clear();
       splatRoot.add(splatViewer);
       activeViewer = splatViewer;
+
+      const sceneFormat =
+        asset.type === 'splat'
+          ? GaussianSplats3D.SceneFormat.Splat
+          : GaussianSplats3D.SceneFormat.Ply;
 
       setStatus('3DGS 読み込み中');
       setDetail(`${asset.path} を読み込み中です。`);
@@ -447,7 +458,7 @@
       await splatViewer.addSplatScenes([
         {
           path: asset.path,
-          format: GaussianSplats3D.SceneFormat.Ply,
+          format: sceneFormat,
           splatAlphaRemovalThreshold: 1,
           position: [0, 0, 0],
           rotation: [1, 0, 0, 0],
@@ -523,8 +534,9 @@
       clearError();
 
       switch (activeAsset.type) {
+        case 'splat':
         case 'ply':
-          return loadPlyAsset(activeAsset);
+          return loadSplatAsset(activeAsset);
         case 'usdz':
           return loadUsdzAsset(activeAsset);
         case 'fbx':
@@ -639,7 +651,7 @@
     }
 
     function beginTwoPointerGesture() {
-      if (!renderer.xr.isPresenting || !modelPlaced || activeAsset?.type !== 'ply') return;
+      if (!renderer.xr.isPresenting || !modelPlaced || !isSplatAssetType(activeAsset?.type)) return;
 
       const pair = getTwoPointers();
       if (!pair) {
@@ -666,7 +678,7 @@
     }
 
     function beginSinglePointerGesture(pointer) {
-      if (!renderer.xr.isPresenting || !modelPlaced || activeAsset?.type !== 'ply') return;
+      if (!renderer.xr.isPresenting || !modelPlaced || !isSplatAssetType(activeAsset?.type)) return;
 
       gestureState.active = true;
       gestureState.mode = 'single-pointer';
@@ -675,7 +687,7 @@
     }
 
     function updateTwoPointerGesture() {
-      if (!gestureState.active || gestureState.mode !== 'two-pointer' || !renderer.xr.isPresenting || !modelPlaced || activeAsset?.type !== 'ply') return;
+      if (!gestureState.active || gestureState.mode !== 'two-pointer' || !renderer.xr.isPresenting || !modelPlaced || !isSplatAssetType(activeAsset?.type)) return;
 
       const pair = getTwoPointers();
       if (!pair) return;
@@ -700,7 +712,7 @@
     }
 
     function updateSinglePointerGesture(pointer) {
-      if (!gestureState.active || gestureState.mode !== 'single-pointer' || !renderer.xr.isPresenting || !modelPlaced || activeAsset?.type !== 'ply') return;
+      if (!gestureState.active || gestureState.mode !== 'single-pointer' || !renderer.xr.isPresenting || !modelPlaced || !isSplatAssetType(activeAsset?.type)) return;
 
       const deltaX = pointer.x - gestureState.startPointerX;
       modelAnchor.rotation.y = gestureState.startYaw + (deltaX / Math.max(window.innerWidth, 1)) * Math.PI * 1.5;
@@ -749,7 +761,7 @@
     }, { passive: true });
 
     function placeModelAtReticle() {
-      if (activeAsset?.type !== 'ply') return;
+      if (!isSplatAssetType(activeAsset?.type)) return;
       if (!renderer.xr.isPresenting || !modelLoaded || !reticle.visible) return;
       if (activePointers.size > 1) return;
 
@@ -798,7 +810,7 @@
     }
 
     renderer.xr.addEventListener('sessionstart', () => {
-      if (activeAsset?.type !== 'ply') return;
+      if (!isSplatAssetType(activeAsset?.type)) return;
 
       xrSession = renderer.xr.getSession();
       controls.enabled = false;
@@ -827,7 +839,7 @@
     });
 
     renderer.xr.addEventListener('sessionend', () => {
-      if (activeAsset?.type !== 'ply') return;
+      if (!isSplatAssetType(activeAsset?.type)) return;
 
       controls.enabled = true;
       scene.background = new THREE.Color(0x101014);
@@ -855,7 +867,7 @@
         setSupportNote(`複数の表示ファイルを検出しました: ${availableLabels}\nこの端末では ${asset.label} を優先して表示します。`);
       }
 
-      if (asset.type === 'ply') {
+      if (isSplatAssetType(asset.type)) {
         if (isAppleMobile) {
           setSupportNote('iPhone / iPad では PLY の 3DGS を通常表示できますが、AR 表示はできません。iOS で AR を使う場合は ARtest.usdz を置いてください。');
         } else if (canUseWebXRAR) {
@@ -888,7 +900,7 @@
 
     async function initialize() {
       setStatus('表示ファイルを確認中');
-      setDetail('ARtest.ply / ARtest.usdz / ARtest.fbx / ARtest.obj を確認しています。');
+      setDetail('ARtest.splat / ARtest.ply / ARtest.usdz / ARtest.fbx / ARtest.obj を確認しています。');
 
       const [availableFlags, immersiveArSupported] = await Promise.all([
         Promise.all(assetCandidates.map((asset) => probeFile(asset.path))),
@@ -901,7 +913,7 @@
       activeAsset = chooseAsset(availableAssets);
 
       if (!activeAsset) {
-        throw new Error('表示できるファイルが見つかりません。ARtest.ply / ARtest.usdz / ARtest.fbx / ARtest.obj のいずれかを配置してください。');
+        throw new Error('表示できるファイルが見つかりません。ARtest.splat / ARtest.ply / ARtest.usdz / ARtest.fbx / ARtest.obj のいずれかを配置してください。');
       }
 
       configureUiForAsset(activeAsset, availableAssets);
@@ -925,7 +937,7 @@
       if (!renderer.xr.isPresenting) {
         cube.rotation.y += 0.01;
         controls.update();
-      } else if (activeAsset?.type === 'ply' && canUseWebXRAR) {
+      } else if (isSplatAssetType(activeAsset?.type) && canUseWebXRAR) {
         void ensureHitTestSource();
 
         if (frame && hitTestSource && xrRefSpace) {
