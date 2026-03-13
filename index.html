@@ -106,6 +106,8 @@
 
     #ar-entry {
       display: flex;
+      flex: 1 1 100%;
+      width: 100%;
       justify-content: center;
     }
 
@@ -113,6 +115,7 @@
     #ar-entry button,
     #ar-entry a {
       display: inline-flex;
+      margin: 0 auto;
       align-items: center;
       justify-content: center;
       min-height: 48px;
@@ -144,13 +147,17 @@
     @media (max-width: 640px) {
       #actions {
         flex-wrap: wrap;
-        justify-content: stretch;
+        justify-content: center;
       }
 
       .action-link,
       #ar-entry button,
       #ar-entry a {
         flex: 1 1 auto;
+      }
+
+      #ar-entry {
+        width: 100%;
       }
 
       #tapHint {
@@ -207,7 +214,8 @@
     import * as GaussianSplats3D from '@mkkellogg/gaussian-splats-3d';
 
     const BASE_NAME = './ARtest';
-    const DEFAULT_PLACEMENT_SCALE = 0.35;
+    const DEFAULT_MODEL_SCALE = 0.25;
+    const DEFAULT_PLACEMENT_SCALE = DEFAULT_MODEL_SCALE;
     const BASE_YAW_OFFSET = Math.PI;
 
     const app = document.getElementById('app');
@@ -424,7 +432,7 @@
       modelAnchor.visible = true;
       modelAnchor.position.set(0, 0, 0);
       modelAnchor.rotation.set(0, BASE_YAW_OFFSET, 0);
-      modelAnchor.scale.setScalar(1.0);
+      modelAnchor.scale.setScalar(DEFAULT_MODEL_SCALE);
       camera.position.set(0, 0.8, 3.2);
       controls.target.set(0, 0.6, 0);
       controls.update();
@@ -774,7 +782,7 @@
       modelAnchor.position.copy(hitPosition);
       modelAnchor.rotation.set(0, getPlacementYawFacingCamera(hitPosition), 0);
 
-      if (modelAnchor.scale.x === 1.0) {
+      if (modelAnchor.scale.x === DEFAULT_MODEL_SCALE) {
         modelAnchor.scale.setScalar(DEFAULT_PLACEMENT_SCALE);
       }
 
