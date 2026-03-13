@@ -3,9 +3,19 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
-  <title>3DGS AR Place / Scale / Rotate / Move</title>
+  <title>Model Viewer / AR</title>
   <style>
-    html, body {
+    :root {
+      color-scheme: dark;
+      --panel-bg: rgba(0, 0, 0, 0.58);
+      --panel-border: rgba(255, 255, 255, 0.18);
+      --text-main: #ffffff;
+      --text-sub: rgba(255, 255, 255, 0.9);
+      --text-error: #ffb4b4;
+    }
+
+    html,
+    body {
       margin: 0;
       width: 100%;
       height: 100%;
@@ -13,58 +23,136 @@
       background: #000;
       font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
       touch-action: none;
+      -webkit-user-select: none;
+      user-select: none;
     }
+
+    body {
+      position: fixed;
+      inset: 0;
+    }
+
     #app {
       position: fixed;
       inset: 0;
     }
-    #hud {
+
+    #hud,
+    #tapHint,
+    #actions {
       position: fixed;
       left: 12px;
       right: 12px;
-      top: 12px;
       z-index: 20;
-      color: #fff;
-      background: rgba(0,0,0,.55);
-      border: 1px solid rgba(255,255,255,.18);
+      color: var(--text-main);
+      background: var(--panel-bg);
+      border: 1px solid var(--panel-border);
+      backdrop-filter: blur(10px);
+      box-sizing: border-box;
+    }
+
+    #hud {
+      top: 12px;
       border-radius: 14px;
       padding: 12px 14px;
-      backdrop-filter: blur(8px);
       line-height: 1.5;
-      font-size: 14px;
-      box-sizing: border-box;
       pointer-events: none;
     }
+
     #status {
       font-weight: 700;
       margin-bottom: 6px;
     }
-    #detail, #error {
+
+    #detail,
+    #supportNote,
+    #error {
       font-size: 12px;
-      opacity: .95;
       white-space: pre-wrap;
       word-break: break-word;
     }
+
+    #detail,
+    #supportNote {
+      color: var(--text-sub);
+    }
+
     #error {
-      color: #ffb4b4;
+      color: var(--text-error);
       margin-top: 6px;
     }
+
     #tapHint {
-      position: fixed;
       left: 50%;
       bottom: 96px;
       transform: translateX(-50%);
-      z-index: 20;
-      color: #fff;
-      background: rgba(0,0,0,.55);
-      border: 1px solid rgba(255,255,255,.18);
       border-radius: 999px;
       padding: 10px 14px;
-      backdrop-filter: blur(8px);
       font-size: 13px;
       pointer-events: none;
       display: none;
       white-space: nowrap;
+    }
+
+    #actions {
+      bottom: 16px;
+      display: flex;
+      gap: 10px;
+      justify-content: flex-end;
+      align-items: center;
+      padding: 10px;
+      border-radius: 18px;
+    }
+
+    .action-link,
+    #ar-entry button,
+    #ar-entry a {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 48px;
+      padding: 0 16px;
+      border-radius: 999px;
+      border: 1px solid rgba(255, 255, 255, 0.24);
+      background: rgba(20, 20, 20, 0.75);
+      color: #fff;
+      text-decoration: none;
+      font-weight: 700;
+      font-size: 14px;
+      white-space: nowrap;
+      box-sizing: border-box;
+    }
+
+    .action-link[hidden],
+    #supportNote[hidden] {
+      display: none;
+    }
+
+    #quicklook-link img {
+      width: 1px;
+      height: 1px;
+      opacity: 0;
+      position: absolute;
+      pointer-events: none;
+    }
+
+    @media (max-width: 640px) {
+      #actions {
+        flex-wrap: wrap;
+        justify-content: stretch;
+      }
+
+      .action-link,
+      #ar-entry button,
+      #ar-entry a {
+        flex: 1 1 auto;
+      }
+
+      #tapHint {
+        max-width: calc(100vw - 24px);
+        white-space: normal;
+        text-align: center;
+      }
     }
   </style>
 
@@ -84,59 +172,182 @@
 
   <div id="hud">
     <div id="status">初期化中...</div>
-    <div id="detail">3DGS を読み込み中です。</div>
+    <div id="detail">表示ファイルを確認中です。</div>
+    <div id="supportNote" hidden></div>
     <div id="error"></div>
   </div>
 
-  <div id="tapHint">床や机を映して平面検知 → 1本指タップで配置</div>
+  <div id="tapHint">床や机を映して平面検知し、1本指タップで配置します</div>
+
+  <div id="actions">
+    <div id="ar-entry"></div>
+    <a id="quicklook-link" class="action-link" href="./ARtest.usdz" rel="ar" hidden>
+      iPhoneでAR表示
+      <img
+        alt=""
+        aria-hidden="true"
+        src="data:image/gif;base64,R0lGODlhAQABAAAAACwAAAAAAQABAAA="
+      />
+    </a>
+  </div>
 
   <script type="module">
     import * as THREE from 'three';
     import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
     import { ARButton } from 'three/addons/webxr/ARButton.js';
+    import { FBXLoader } from 'three/addons/loaders/FBXLoader.js';
+    import { MTLLoader } from 'three/addons/loaders/MTLLoader.js';
+    import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
+    import { USDZLoader } from 'three/addons/loaders/USDZLoader.js';
     import * as GaussianSplats3D from '@mkkellogg/gaussian-splats-3d';
+
+    const BASE_NAME = './ARtest';
+    const DEFAULT_PLACEMENT_SCALE = 0.35;
+    const BASE_YAW_OFFSET = Math.PI;
 
     const app = document.getElementById('app');
     const statusEl = document.getElementById('status');
     const detailEl = document.getElementById('detail');
+    const supportNoteEl = document.getElementById('supportNote');
     const errorEl = document.getElementById('error');
     const tapHintEl = document.getElementById('tapHint');
+    const arEntryEl = document.getElementById('ar-entry');
+    const quickLookLinkEl = document.getElementById('quicklook-link');
 
-    function setStatus(s) {
-      statusEl.textContent = s;
-      console.log('[status]', s);
+    const ua = navigator.userAgent;
+    const isAppleMobile =
+      /iPhone|iPad|iPod/i.test(ua) ||
+      (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+
+    const assetCandidates = [
+      { type: 'ply', path: `${BASE_NAME}.ply`, label: '3DGS PLY' },
+      { type: 'usdz', path: `${BASE_NAME}.usdz`, label: 'USDZ' },
+      { type: 'fbx', path: `${BASE_NAME}.fbx`, label: 'FBX' },
+      { type: 'obj', path: `${BASE_NAME}.obj`, label: 'OBJ' }
+    ];
+
+    let activeAsset = null;
+    let modelLoaded = false;
+    let modelPlaced = false;
+    let canUseWebXRAR = false;
+    let lastPlacementTs = 0;
+    let activeViewer = null;
+
+    function setStatus(message) {
+      statusEl.textContent = message;
+      console.log('[status]', message);
     }
 
-    function setDetail(s) {
-      detailEl.textContent = s;
-      console.log('[detail]', s);
+    function setDetail(message) {
+      detailEl.textContent = message;
+      console.log('[detail]', message);
     }
 
-    function setError(e) {
-      const msg = typeof e === 'string' ? e : (e?.stack || e?.message || String(e));
-      errorEl.textContent = msg;
-      console.error(e);
+    function setSupportNote(message = '') {
+      supportNoteEl.hidden = !message;
+      supportNoteEl.textContent = message;
     }
 
-    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+    function setError(error) {
+      const message = typeof error === 'string' ? error : (error?.stack || error?.message || String(error));
+      errorEl.textContent = message;
+      console.error(error);
+    }
+
+    function clearError() {
+      errorEl.textContent = '';
+    }
+
+    async function probeFile(url) {
+      try {
+        const headResponse = await fetch(url, { method: 'HEAD', cache: 'no-store' });
+        if (headResponse.ok) return true;
+        if (![403, 405, 501].includes(headResponse.status)) return false;
+      } catch (error) {
+        console.warn('HEAD probe failed:', url, error);
+      }
+
+      try {
+        const response = await fetch(url, {
+          method: 'GET',
+          cache: 'no-store',
+          headers: { Range: 'bytes=0-0' }
+        });
+        const ok = response.ok || response.status === 206;
+        if (response.body && typeof response.body.cancel === 'function') {
+          void response.body.cancel();
+        }
+        return ok;
+      } catch (error) {
+        console.warn('GET probe failed:', url, error);
+        return false;
+      }
+    }
+
+    async function detectImmersiveArSupport() {
+      if (!navigator.xr || typeof navigator.xr.isSessionSupported !== 'function') {
+        return false;
+      }
+
+      try {
+        return await navigator.xr.isSessionSupported('immersive-ar');
+      } catch (error) {
+        console.warn('immersive-ar support check failed', error);
+        return false;
+      }
+    }
+
+    function chooseAsset(availableAssets) {
+      const assetsByType = new Map(availableAssets.map((asset) => [asset.type, asset]));
+
+      if (isAppleMobile && assetsByType.has('usdz')) {
+        return assetsByType.get('usdz');
+      }
+
+      if (assetsByType.has('ply')) return assetsByType.get('ply');
+      if (assetsByType.has('usdz')) return assetsByType.get('usdz');
+      if (assetsByType.has('fbx')) return assetsByType.get('fbx');
+      if (assetsByType.has('obj')) return assetsByType.get('obj');
+      return null;
+    }
+
+    const renderer = new THREE.WebGLRenderer({
+      antialias: true,
+      alpha: true,
+      powerPreference: 'high-performance'
+    });
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.xr.enabled = true;
     renderer.xr.setReferenceSpaceType('local');
     app.appendChild(renderer.domElement);
+
+    renderer.domElement.addEventListener('webglcontextlost', (event) => {
+      event.preventDefault();
+      setStatus('描画コンテキストが失われました');
+      setDetail('端末負荷が高い可能性があります。ページを再読み込みしてください。');
+    });
+
+    renderer.domElement.addEventListener('webglcontextrestored', () => {
+      setStatus(modelLoaded ? '描画を復旧しました' : '復旧しました');
+      setDetail(modelLoaded ? '必要なら AR を再開してください。' : 'ページを再読み込みしてください。');
+    });
 
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(0x101014);
 
     const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.01, 100);
-    camera.position.set(0, 1.2, 3.0);
+    camera.position.set(0, 0.8, 3.2);
 
     const controls = new OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
     controls.target.set(0, 0.6, 0);
+    controls.minDistance = 0.2;
+    controls.maxDistance = 30;
     controls.update();
 
-    const hemi = new THREE.HemisphereLight(0xffffff, 0x444444, 1.5);
-    scene.add(hemi);
+    scene.add(new THREE.HemisphereLight(0xffffff, 0x444444, 1.5));
 
     const dir = new THREE.DirectionalLight(0xffffff, 1.0);
     dir.position.set(3, 4, 2);
@@ -155,16 +366,17 @@
     cube.position.set(0, 0.125, 0);
     scene.add(cube);
 
-    // 配置対象の親
+    const previewRoot = new THREE.Group();
+    scene.add(previewRoot);
+
     const modelAnchor = new THREE.Group();
     modelAnchor.visible = false;
     scene.add(modelAnchor);
 
-    // 3DGS本体
     const splatRoot = new THREE.Group();
     modelAnchor.add(splatRoot);
 
-    const viewer = new GaussianSplats3D.DropInViewer({
+    const splatViewer = new GaussianSplats3D.DropInViewer({
       selfDrivenMode: false,
       useBuiltInControls: false,
       gpuAcceleratedSort: false,
@@ -179,17 +391,39 @@
       logLevel: GaussianSplats3D.LogLevel.Info,
       sphericalHarmonicsDegree: 0
     });
-    splatRoot.add(viewer);
 
-    let modelLoaded = false;
-    let modelPlaced = false;
+    function frameObject(object3D) {
+      const box = new THREE.Box3().setFromObject(object3D);
+      if (box.isEmpty()) return;
 
-    // モデルの基準向き
-    // 通常表示で合っていた前後補正
-    const BASE_YAW_OFFSET = Math.PI;
+      const size = new THREE.Vector3();
+      const center = new THREE.Vector3();
+      box.getSize(size);
+      box.getCenter(center);
 
-    function getNormalViewYaw() {
-      return BASE_YAW_OFFSET;
+      object3D.position.sub(center);
+
+      const maxSize = Math.max(size.x, size.y, size.z, 0.001);
+      const distance = maxSize * 1.8;
+
+      camera.near = Math.max(distance / 100, 0.01);
+      camera.far = Math.max(distance * 20, 100);
+      camera.position.set(maxSize * 0.6, maxSize * 0.4, distance);
+      camera.updateProjectionMatrix();
+
+      controls.target.set(0, 0, 0);
+      controls.update();
+    }
+
+    function resetModelToPreview() {
+      modelPlaced = false;
+      modelAnchor.visible = true;
+      modelAnchor.position.set(0, 0, 0);
+      modelAnchor.rotation.set(0, BASE_YAW_OFFSET, 0);
+      modelAnchor.scale.setScalar(1.0);
+      camera.position.set(0, 0.8, 3.2);
+      controls.target.set(0, 0.6, 0);
+      controls.update();
     }
 
     function getPlacementYawFacingCamera(targetPos) {
@@ -199,26 +433,20 @@
 
       const dx = camPos.x - targetPos.x;
       const dz = camPos.z - targetPos.z;
-
-      // モデルの+Z/-Zの向き差は BASE_YAW_OFFSET で吸収
       return Math.atan2(dx, dz) + BASE_YAW_OFFSET;
     }
 
-    async function testFetch() {
-      setDetail('ARtest.ply の存在確認中...');
-      const r = await fetch('./ARtest.ply', { method: 'HEAD' });
-      if (!r.ok) throw new Error('ARtest.ply fetch failed: HTTP ' + r.status);
-      setDetail('ARtest.ply は取得可能です。3DGS を読み込みます...');
-    }
+    async function loadPlyAsset(asset) {
+      splatRoot.clear();
+      splatRoot.add(splatViewer);
+      activeViewer = splatViewer;
 
-    async function loadSplat() {
-      await testFetch();
+      setStatus('3DGS 読み込み中');
+      setDetail(`${asset.path} を読み込み中です。`);
 
-      const start = performance.now();
-
-      await viewer.addSplatScenes([
+      await splatViewer.addSplatScenes([
         {
-          path: './ARtest.ply',
+          path: asset.path,
           format: GaussianSplats3D.SceneFormat.Ply,
           splatAlphaRemovalThreshold: 1,
           position: [0, 0, 0],
@@ -227,26 +455,94 @@
         }
       ]);
 
-      const sec = ((performance.now() - start) / 1000).toFixed(1);
       modelLoaded = true;
+      resetModelToPreview();
       setStatus('3DGS 読み込み完了');
-      setDetail('読込時間: ' + sec + ' 秒\n通常表示OK。START AR を押してください。');
+      setDetail('通常表示で確認できます。Android の WebXR 対応ブラウザでは AR を開始できます。');
     }
 
-    // ===== 通常表示用の仮配置 =====
-    modelAnchor.visible = true;
-    modelAnchor.position.set(0, 0, 0);
-    modelAnchor.rotation.set(0, getNormalViewYaw(), 0);
-    modelAnchor.scale.setScalar(1.0);
+    async function loadUsdzAsset(asset) {
+      const loader = new USDZLoader();
+      setStatus('USDZ 読み込み中');
+      setDetail(`${asset.path} を読み込み中です。`);
 
-    // ===== AR / hit-test =====
+      const arrayBuffer = await fetch(asset.path, { cache: 'no-store' }).then(async (response) => {
+        if (!response.ok) {
+          throw new Error(`USDZ fetch failed: HTTP ${response.status}`);
+        }
+        return response.arrayBuffer();
+      });
+
+      const loaded = loader.parse(arrayBuffer);
+      previewRoot.add(loaded);
+      frameObject(loaded);
+
+      modelLoaded = true;
+      setStatus('USDZ 読み込み完了');
+      setDetail('通常ビューで確認できます。ドラッグで回転、ピンチまたはホイールでズームできます。');
+    }
+
+    async function loadFbxAsset(asset) {
+      const loader = new FBXLoader();
+      setStatus('FBX 読み込み中');
+      setDetail(`${asset.path} を読み込み中です。`);
+
+      const loaded = await loader.loadAsync(asset.path);
+      previewRoot.add(loaded);
+      frameObject(loaded);
+
+      modelLoaded = true;
+      setStatus('FBX 読み込み完了');
+      setDetail('通常ビューで確認できます。ドラッグで回転、ピンチまたはホイールでズームできます。');
+    }
+
+    async function loadObjAsset(asset) {
+      const objLoader = new OBJLoader();
+      const mtlPath = `${BASE_NAME}.mtl`;
+
+      if (await probeFile(mtlPath)) {
+        const mtlLoader = new MTLLoader();
+        const materials = await mtlLoader.loadAsync(mtlPath);
+        materials.preload();
+        objLoader.setMaterials(materials);
+      }
+
+      setStatus('OBJ 読み込み中');
+      setDetail(`${asset.path} を読み込み中です。`);
+
+      const loaded = await objLoader.loadAsync(asset.path);
+      previewRoot.add(loaded);
+      frameObject(loaded);
+
+      modelLoaded = true;
+      setStatus('OBJ 読み込み完了');
+      setDetail('通常ビューで確認できます。ドラッグで回転、ピンチまたはホイールでズームできます。');
+    }
+
+    async function loadActiveAsset() {
+      clearError();
+
+      switch (activeAsset.type) {
+        case 'ply':
+          return loadPlyAsset(activeAsset);
+        case 'usdz':
+          return loadUsdzAsset(activeAsset);
+        case 'fbx':
+          return loadFbxAsset(activeAsset);
+        case 'obj':
+          return loadObjAsset(activeAsset);
+        default:
+          throw new Error(`未対応の形式です: ${activeAsset.type}`);
+      }
+    }
+
     let xrSession = null;
     let xrRefSpace = null;
     let viewerRefSpace = null;
     let hitTestSource = null;
     let hitTestSourceRequested = false;
+    let hitTestInitPromise = null;
 
-    const hitMatrix = new THREE.Matrix4();
     const hitPosition = new THREE.Vector3();
 
     const reticle = new THREE.Mesh(
@@ -260,106 +556,57 @@
     const floorPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
     const screenRaycaster = new THREE.Raycaster();
 
-    const arButton = ARButton.createButton(renderer, {
-      requiredFeatures: ['hit-test'],
-      optionalFeatures: ['dom-overlay'],
-      domOverlay: { root: document.body }
-    });
-
-    Object.assign(arButton.style, {
-      bottom: '20px',
-      right: '20px',
-      left: 'auto',
-      width: 'auto',
-      padding: '12px 16px',
-      borderRadius: '999px',
-      border: '1px solid rgba(255,255,255,.3)',
-      background: 'rgba(0,0,0,.6)',
-      color: '#fff',
-      fontWeight: '700'
-    });
-
-    document.body.appendChild(arButton);
-
     function resetHitTest() {
       if (hitTestSource) {
         hitTestSource.cancel();
         hitTestSource = null;
       }
       hitTestSourceRequested = false;
+      hitTestInitPromise = null;
       xrRefSpace = null;
       viewerRefSpace = null;
+      reticle.visible = false;
     }
-
-    renderer.xr.addEventListener('sessionstart', async () => {
-      xrSession = renderer.xr.getSession();
-      controls.enabled = false;
-      scene.background = null;
-      grid.visible = false;
-      axes.visible = false;
-      cube.visible = false;
-      reticle.visible = false;
-      tapHintEl.style.display = 'block';
-
-      setStatus('AR開始');
-      setDetail('平面検知中です。床や机を映し、表示したい場所を1本指でタップしてください。');
-
-      modelPlaced = false;
-      modelAnchor.visible = false;
-
-      xrSession.addEventListener('end', () => {
-        xrSession = null;
-        resetHitTest();
-      });
-    });
-
-    renderer.xr.addEventListener('sessionend', () => {
-      controls.enabled = true;
-      scene.background = new THREE.Color(0x101014);
-      grid.visible = true;
-      axes.visible = true;
-      cube.visible = true;
-      reticle.visible = false;
-      tapHintEl.style.display = 'none';
-
-      setStatus(modelLoaded ? '3DGS 読み込み完了' : '待機中');
-      setDetail(modelLoaded
-        ? '通常表示に戻りました。START AR で再開できます。'
-        : '3DGS を読み込み中です。');
-
-      modelAnchor.visible = true;
-      modelAnchor.position.set(0, 0, 0);
-      modelAnchor.rotation.set(0, getNormalViewYaw(), 0);
-      modelAnchor.scale.setScalar(1.0);
-    });
 
     async function ensureHitTestSource() {
-      if (!xrSession || hitTestSourceRequested) return;
-      hitTestSourceRequested = true;
+      if (!xrSession || hitTestSource) return;
+      if (hitTestInitPromise) return hitTestInitPromise;
+      if (hitTestSourceRequested) return;
 
-      viewerRefSpace = await xrSession.requestReferenceSpace('viewer');
-      xrRefSpace = await xrSession.requestReferenceSpace('local');
-      hitTestSource = await xrSession.requestHitTestSource({ space: viewerRefSpace });
+      hitTestSourceRequested = true;
+      hitTestInitPromise = (async () => {
+        try {
+          viewerRefSpace = await xrSession.requestReferenceSpace('viewer');
+          xrRefSpace = await xrSession.requestReferenceSpace('local');
+          hitTestSource = await xrSession.requestHitTestSource({ space: viewerRefSpace });
+        } catch (error) {
+          setError(error);
+          setDetail('hit-test の初期化に失敗しました。ブラウザまたは端末の AR 対応状況を確認してください。');
+        } finally {
+          hitTestInitPromise = null;
+        }
+      })();
+
+      return hitTestInitPromise;
     }
 
-    // ===== 2本指ジェスチャ =====
     const activePointers = new Map();
-
     const gestureState = {
       active: false,
+      mode: 'none',
       startDistance: 0,
-      startAngle: 0,
       startScale: 1,
       startYaw: 0,
+      startPointerX: 0,
       startPos: new THREE.Vector3(),
       startHitPoint: new THREE.Vector3(),
       currentGroundY: 0
     };
 
     function getTwoPointers() {
-      const arr = [...activePointers.values()];
-      if (arr.length < 2) return null;
-      return [arr[0], arr[1]];
+      const pointers = [...activePointers.values()];
+      if (pointers.length < 2) return null;
+      return [pointers[0], pointers[1]];
     }
 
     function pointerDistance(a, b) {
@@ -391,12 +638,13 @@
       return screenRaycaster.ray.intersectPlane(floorPlane, outVec3);
     }
 
-    function beginGestureIfNeeded() {
-      if (!renderer.xr.isPresenting || !modelPlaced) return;
+    function beginTwoPointerGesture() {
+      if (!renderer.xr.isPresenting || !modelPlaced || activeAsset?.type !== 'ply') return;
 
       const pair = getTwoPointers();
       if (!pair) {
         gestureState.active = false;
+        gestureState.mode = 'none';
         return;
       }
 
@@ -405,10 +653,9 @@
       const midNdc = screenToNDC(mid.x, mid.y);
 
       gestureState.active = true;
+      gestureState.mode = 'two-pointer';
       gestureState.startDistance = pointerDistance(p1, p2);
-      gestureState.startAngle = pointerAngle(p1, p2);
       gestureState.startScale = modelAnchor.scale.x;
-      gestureState.startYaw = modelAnchor.rotation.y;
       gestureState.startPos.copy(modelAnchor.position);
       gestureState.currentGroundY = modelAnchor.position.y;
 
@@ -418,26 +665,28 @@
       }
     }
 
-    function updateGesture() {
-      if (!gestureState.active || !renderer.xr.isPresenting || !modelPlaced) return;
+    function beginSinglePointerGesture(pointer) {
+      if (!renderer.xr.isPresenting || !modelPlaced || activeAsset?.type !== 'ply') return;
+
+      gestureState.active = true;
+      gestureState.mode = 'single-pointer';
+      gestureState.startPointerX = pointer.x;
+      gestureState.startYaw = modelAnchor.rotation.y;
+    }
+
+    function updateTwoPointerGesture() {
+      if (!gestureState.active || gestureState.mode !== 'two-pointer' || !renderer.xr.isPresenting || !modelPlaced || activeAsset?.type !== 'ply') return;
 
       const pair = getTwoPointers();
       if (!pair) return;
 
       const [p1, p2] = pair;
 
-      // スケール
       const currentDistance = pointerDistance(p1, p2);
       const scaleFactor = currentDistance / Math.max(gestureState.startDistance, 1);
       const newScale = THREE.MathUtils.clamp(gestureState.startScale * scaleFactor, 0.05, 10.0);
       modelAnchor.scale.setScalar(newScale);
 
-      // Y回転
-      const currentAngle = pointerAngle(p1, p2);
-      const deltaAngle = currentAngle - gestureState.startAngle;
-      modelAnchor.rotation.y = gestureState.startYaw + deltaAngle;
-
-      // 2本指中心の移動で平面上をスライド
       const mid = pointerMid(p1, p2);
       const midNdc = screenToNDC(mid.x, mid.y);
       const currentHit = new THREE.Vector3();
@@ -445,41 +694,68 @@
 
       if (hit) {
         const delta = new THREE.Vector3().subVectors(currentHit, gestureState.startHitPoint);
-        modelAnchor.position.copy(gestureState.startPos).sub(delta);
+        modelAnchor.position.copy(gestureState.startPos).add(delta);
+        modelAnchor.position.y = gestureState.currentGroundY;
       }
     }
 
-    renderer.domElement.addEventListener('pointerdown', (e) => {
-      if (!renderer.xr.isPresenting) return;
-      activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
-      if (activePointers.size === 2) beginGestureIfNeeded();
-    }, { passive: true });
+    function updateSinglePointerGesture(pointer) {
+      if (!gestureState.active || gestureState.mode !== 'single-pointer' || !renderer.xr.isPresenting || !modelPlaced || activeAsset?.type !== 'ply') return;
 
-    renderer.domElement.addEventListener('pointermove', (e) => {
-      if (!renderer.xr.isPresenting) return;
-      if (activePointers.has(e.pointerId)) {
-        activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
-      }
-      if (activePointers.size >= 2) updateGesture();
-    }, { passive: true });
+      const deltaX = pointer.x - gestureState.startPointerX;
+      modelAnchor.rotation.y = gestureState.startYaw + (deltaX / Math.max(window.innerWidth, 1)) * Math.PI * 1.5;
+    }
 
-    function endPointer(e) {
-      activePointers.delete(e.pointerId);
+    function endPointer(pointerId) {
+      activePointers.delete(pointerId);
       if (activePointers.size < 2) {
         gestureState.active = false;
+        gestureState.mode = 'none';
       }
     }
 
-    renderer.domElement.addEventListener('pointerup', endPointer, { passive: true });
-    renderer.domElement.addEventListener('pointercancel', endPointer, { passive: true });
-    renderer.domElement.addEventListener('pointerleave', endPointer, { passive: true });
-
-    // 1本指タップで配置
-    renderer.domElement.addEventListener('click', () => {
+    renderer.domElement.addEventListener('pointerdown', (event) => {
       if (!renderer.xr.isPresenting) return;
-      if (!modelLoaded) return;
-      if (!reticle.visible) return;
+      activePointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+      if (activePointers.size === 1) {
+        beginSinglePointerGesture({ x: event.clientX, y: event.clientY });
+      } else if (activePointers.size === 2) {
+        beginTwoPointerGesture();
+      }
+    }, { passive: true });
+
+    renderer.domElement.addEventListener('pointermove', (event) => {
+      if (!renderer.xr.isPresenting) return;
+      if (activePointers.has(event.pointerId)) {
+        activePointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+      }
+      if (activePointers.size >= 2) {
+        updateTwoPointerGesture();
+      } else if (activePointers.size === 1) {
+        updateSinglePointerGesture({ x: event.clientX, y: event.clientY });
+      }
+    }, { passive: true });
+
+    renderer.domElement.addEventListener('pointerup', (event) => {
+      endPointer(event.pointerId);
+    }, { passive: true });
+
+    renderer.domElement.addEventListener('pointercancel', (event) => {
+      endPointer(event.pointerId);
+    }, { passive: true });
+
+    renderer.domElement.addEventListener('pointerleave', (event) => {
+      endPointer(event.pointerId);
+    }, { passive: true });
+
+    function placeModelAtReticle() {
+      if (activeAsset?.type !== 'ply') return;
+      if (!renderer.xr.isPresenting || !modelLoaded || !reticle.visible) return;
       if (activePointers.size > 1) return;
+
+      const now = performance.now();
+      if (now - lastPlacementTs < 250) return;
+      lastPlacementTs = now;
 
       reticle.matrix.decompose(hitPosition, new THREE.Quaternion(), new THREE.Vector3());
 
@@ -489,30 +765,168 @@
       modelAnchor.rotation.set(0, getPlacementYawFacingCamera(hitPosition), 0);
 
       if (modelAnchor.scale.x === 1.0) {
-        modelAnchor.scale.setScalar(0.35);
+        modelAnchor.scale.setScalar(DEFAULT_PLACEMENT_SCALE);
       }
 
-      setStatus('AR配置済み');
-      setDetail('配置しました。\n2本指ピンチ: 拡縮\n2本指ひねり: Y回転\n2本指ドラッグ: 移動');
+      setStatus('AR 配置済み');
+      setDetail('1本指ドラッグで回転\n2本指ドラッグで平面移動\n2本指ピンチで拡大縮小\n1本指タップで再配置できます');
+    }
+
+    renderer.domElement.addEventListener('click', placeModelAtReticle, { passive: true });
+
+    function buildWebXRButton() {
+      const button = ARButton.createButton(renderer, {
+        requiredFeatures: ['hit-test'],
+        optionalFeatures: ['dom-overlay'],
+        domOverlay: { root: document.body }
+      });
+
+      Object.assign(button.style, {
+        position: 'static',
+        width: 'auto',
+        height: '48px',
+        padding: '0 16px',
+        borderRadius: '999px',
+        border: '1px solid rgba(255,255,255,.24)',
+        background: 'rgba(20,20,20,.75)',
+        color: '#fff',
+        fontWeight: '700',
+        fontSize: '14px'
+      });
+
+      arEntryEl.replaceChildren(button);
+    }
+
+    renderer.xr.addEventListener('sessionstart', () => {
+      if (activeAsset?.type !== 'ply') return;
+
+      xrSession = renderer.xr.getSession();
+      controls.enabled = false;
+      scene.background = null;
+      grid.visible = false;
+      axes.visible = false;
+      cube.visible = false;
+      reticle.visible = false;
+      tapHintEl.style.display = 'block';
+      activePointers.clear();
+      gestureState.active = false;
+      gestureState.mode = 'none';
+      lastPlacementTs = 0;
+
+      setStatus('AR 起動中');
+      setDetail('床や机を映して平面検知してください。検出後に 1 本指タップで配置できます。\n配置後は 1 本指ドラッグで回転、2 本指ドラッグで移動、2 本指ピンチで拡大縮小できます。');
+      clearError();
+
+      modelPlaced = false;
+      modelAnchor.visible = false;
+
+      xrSession.addEventListener('end', () => {
+        xrSession = null;
+        resetHitTest();
+      }, { once: true });
     });
 
-    loadSplat().catch((err) => {
-      setStatus('3DGS 読み込み失敗');
-      setError(err);
+    renderer.xr.addEventListener('sessionend', () => {
+      if (activeAsset?.type !== 'ply') return;
+
+      controls.enabled = true;
+      scene.background = new THREE.Color(0x101014);
+      grid.visible = true;
+      axes.visible = true;
+      cube.visible = true;
+      tapHintEl.style.display = 'none';
+      activePointers.clear();
+      gestureState.active = false;
+      gestureState.mode = 'none';
+      resetModelToPreview();
+
+      setStatus(modelLoaded ? '3DGS 読み込み済み' : '待機中');
+      setDetail(modelLoaded ? '通常表示に戻りました。再度 AR を開始できます。' : '3DGS を読み込み中です。');
+    });
+
+    function configureUiForAsset(asset, availableAssets) {
+      quickLookLinkEl.hidden = true;
+      arEntryEl.replaceChildren();
+
+      const multipleAssets = availableAssets.length > 1;
+      const availableLabels = availableAssets.map((entry) => entry.label).join(', ');
+
+      if (multipleAssets) {
+        setSupportNote(`複数の表示ファイルを検出しました: ${availableLabels}\nこの端末では ${asset.label} を優先して表示します。`);
+      }
+
+      if (asset.type === 'ply') {
+        if (isAppleMobile) {
+          setSupportNote('iPhone / iPad では PLY の 3DGS を通常表示できますが、AR 表示はできません。iOS で AR を使う場合は ARtest.usdz を置いてください。');
+        } else if (canUseWebXRAR) {
+          buildWebXRButton();
+          if (!multipleAssets) {
+            setSupportNote('Android の WebXR 対応ブラウザでは下のボタンから AR を開始できます。');
+          }
+        } else if (!multipleAssets) {
+          setSupportNote('このブラウザでは immersive-ar が利用できません。通常表示のみ利用できます。');
+        }
+        return;
+      }
+
+      if (asset.type === 'usdz') {
+        if (isAppleMobile) {
+          quickLookLinkEl.hidden = false;
+          if (!multipleAssets) {
+            setSupportNote('iPhone / iPad では下の「iPhoneでAR表示」から Quick Look AR を開きます。');
+          }
+        } else if (!multipleAssets) {
+          setSupportNote('USDZ を通常ビューで表示します。iPhone / iPad Safari では Quick Look から AR 表示できます。');
+        }
+        return;
+      }
+
+      if (!multipleAssets) {
+        setSupportNote(`${asset.label} を通常ビューで表示します。AR 表示はこの形式では無効です。`);
+      }
+    }
+
+    async function initialize() {
+      setStatus('表示ファイルを確認中');
+      setDetail('ARtest.ply / ARtest.usdz / ARtest.fbx / ARtest.obj を確認しています。');
+
+      const [availableFlags, immersiveArSupported] = await Promise.all([
+        Promise.all(assetCandidates.map((asset) => probeFile(asset.path))),
+        detectImmersiveArSupport()
+      ]);
+
+      canUseWebXRAR = immersiveArSupported;
+
+      const availableAssets = assetCandidates.filter((asset, index) => availableFlags[index]);
+      activeAsset = chooseAsset(availableAssets);
+
+      if (!activeAsset) {
+        throw new Error('表示できるファイルが見つかりません。ARtest.ply / ARtest.usdz / ARtest.fbx / ARtest.obj のいずれかを配置してください。');
+      }
+
+      configureUiForAsset(activeAsset, availableAssets);
+      await loadActiveAsset();
+    }
+
+    initialize().catch((error) => {
+      setStatus('初期化失敗');
+      setDetail('表示ファイルの読み込みに失敗しました。');
+      setError(error);
     });
 
     window.addEventListener('resize', () => {
       camera.aspect = window.innerWidth / window.innerHeight;
       camera.updateProjectionMatrix();
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
       renderer.setSize(window.innerWidth, window.innerHeight);
     });
 
-    renderer.setAnimationLoop(async (time, frame) => {
+    renderer.setAnimationLoop((time, frame) => {
       if (!renderer.xr.isPresenting) {
         cube.rotation.y += 0.01;
         controls.update();
-      } else {
-        await ensureHitTestSource();
+      } else if (activeAsset?.type === 'ply' && canUseWebXRAR) {
+        void ensureHitTestSource();
 
         if (frame && hitTestSource && xrRefSpace) {
           const hitTestResults = frame.getHitTestResults(hitTestSource);
@@ -522,7 +936,6 @@
             const pose = hit.getPose(xrRefSpace);
 
             if (pose) {
-              hitMatrix.fromArray(pose.transform.matrix);
               reticle.visible = true;
               reticle.matrix.fromArray(pose.transform.matrix);
             }
@@ -532,7 +945,10 @@
         }
       }
 
-      if (viewer && viewer.update) viewer.update();
+      if (activeViewer && typeof activeViewer.update === 'function') {
+        activeViewer.update();
+      }
+
       renderer.render(scene, camera);
     });
   </script>
